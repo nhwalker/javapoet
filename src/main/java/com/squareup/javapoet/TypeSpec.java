@@ -56,6 +56,7 @@ public final class TypeSpec {
   public final TypeName superclass;
   public final List<TypeName> superinterfaces;
   public final Map<String, TypeSpec> enumConstants;
+  public final List<ParameterSpec> recordComponents;
   public final List<FieldSpec> fieldSpecs;
   public final CodeBlock staticBlock;
   public final CodeBlock initializerBlock;
@@ -64,8 +65,11 @@ public final class TypeSpec {
   final Set<String> nestedTypesSimpleNames;
   public final List<Element> originatingElements;
   public final Set<String> alwaysQualifiedNames;
+  public final boolean recordVarargs;
 
   private TypeSpec(Builder builder) {
+    checkArgument(!builder.recordVarargs || lastParameterIsArray(builder.recordComponents),
+        "last parameter of varargs record components %s must be an array", builder.name);
     this.kind = builder.kind;
     this.name = builder.name;
     this.anonymousTypeArguments = builder.anonymousTypeArguments;
@@ -76,12 +80,14 @@ public final class TypeSpec {
     this.superclass = builder.superclass;
     this.superinterfaces = Util.immutableList(builder.superinterfaces);
     this.enumConstants = Util.immutableMap(builder.enumConstants);
+    this.recordComponents = Util.immutableList(builder.recordComponents);
     this.fieldSpecs = Util.immutableList(builder.fieldSpecs);
     this.staticBlock = builder.staticBlock.build();
     this.initializerBlock = builder.initializerBlock.build();
     this.methodSpecs = Util.immutableList(builder.methodSpecs);
     this.typeSpecs = Util.immutableList(builder.typeSpecs);
     this.alwaysQualifiedNames = Util.immutableSet(builder.alwaysQualifiedNames);
+    this.recordVarargs = builder.recordVarargs;
 
     nestedTypesSimpleNames = new HashSet<>(builder.typeSpecs.size());
     List<Element> originatingElementsMutable = new ArrayList<>();
@@ -92,6 +98,11 @@ public final class TypeSpec {
     }
 
     this.originatingElements = Util.immutableList(originatingElementsMutable);
+  }
+
+  private static boolean lastParameterIsArray(List<ParameterSpec> parameters) {
+    return !parameters.isEmpty()
+        && TypeName.asArray((parameters.get(parameters.size() - 1).type)) != null;
   }
 
   /**
@@ -110,6 +121,7 @@ public final class TypeSpec {
     this.superclass = null;
     this.superinterfaces = Collections.emptyList();
     this.enumConstants = Collections.emptyMap();
+    this.recordComponents = Collections.emptyList();
     this.fieldSpecs = Collections.emptyList();
     this.staticBlock = type.staticBlock;
     this.initializerBlock = type.initializerBlock;
@@ -118,6 +130,7 @@ public final class TypeSpec {
     this.originatingElements = Collections.emptyList();
     this.nestedTypesSimpleNames = Collections.emptySet();
     this.alwaysQualifiedNames = Collections.emptySet();
+    this.recordVarargs = false;
   }
 
   public boolean hasModifier(Modifier modifier) {
@@ -162,6 +175,14 @@ public final class TypeSpec {
 
   public static Builder annotationBuilder(ClassName className) {
     return annotationBuilder(checkNotNull(className, "className == null").simpleName());
+  }
+
+  public static Builder recordBuilder(String name) {
+    return new Builder(Kind.RECORD, checkNotNull(name, "name == null"), null);
+  }
+
+  public static Builder recordBuilder(ClassName className) {
+    return recordBuilder(checkNotNull(className, "className == null").simpleName());
   }
 
   public Builder toBuilder() {
@@ -259,7 +280,12 @@ public final class TypeSpec {
     // Push an empty type (specifically without nested types) for type-resolution.
     codeWriter.pushType(new TypeSpec(this));
 
-    codeWriter.emitJavadoc(javadoc);
+    if (kind == Kind.RECORD) {
+      codeWriter.emitJavadoc(javadocWithRecordParams());
+    } else {
+      codeWriter.emitJavadoc(javadoc);
+    }
+
     codeWriter.emitAnnotations(annotations, false);
     codeWriter.emitModifiers(modifiers, Util.union(implicitModifiers, kind.asMemberModifiers));
     if (kind == Kind.ANNOTATION) {
@@ -268,6 +294,19 @@ public final class TypeSpec {
       codeWriter.emit("$L $L", kind.name().toLowerCase(Locale.US), name);
     }
     codeWriter.emitTypeVariables(typeVariables);
+
+    if (kind == Kind.RECORD) {
+      codeWriter.emit("($Z", new Object[0]);
+      boolean firstParameter = true;
+      for (Iterator<ParameterSpec> i = recordComponents.iterator(); i.hasNext();) {
+        ParameterSpec parameter = i.next();
+        if (!firstParameter)
+          codeWriter.emit(",").emitWrappingSpace();
+        parameter.emit(codeWriter, !i.hasNext() && recordVarargs);
+        firstParameter = false;
+      }
+      codeWriter.emit(")");
+    }
 
     List<TypeName> extendsTypes;
     List<TypeName> implementsTypes;
@@ -392,6 +431,21 @@ public final class TypeSpec {
     }
   }
 
+  private CodeBlock javadocWithRecordParams() {
+    CodeBlock.Builder builder = javadoc.toBuilder();
+    boolean emitTagNewline = true;
+    for (ParameterSpec parameterSpec : recordComponents) {
+      if (!parameterSpec.javadoc.isEmpty()) {
+        // Emit a new line before @param section only if the method javadoc is present.
+        if (emitTagNewline && !javadoc.isEmpty())
+          builder.add("\n");
+        emitTagNewline = false;
+        builder.add("@param $L $L", parameterSpec.name, parameterSpec.javadoc);
+      }
+    }
+    return builder.build();
+  }
+
   @Override public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null) return false;
@@ -437,7 +491,13 @@ public final class TypeSpec {
         Util.immutableSet(Arrays.asList(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)),
         Util.immutableSet(Arrays.asList(Modifier.PUBLIC, Modifier.ABSTRACT)),
         Util.immutableSet(Arrays.asList(Modifier.PUBLIC, Modifier.STATIC)),
-        Util.immutableSet(Collections.singletonList(Modifier.STATIC)));
+        Util.immutableSet(Collections.singletonList(Modifier.STATIC))),
+
+    RECORD(
+        Util.immutableSet(Arrays.asList(Modifier.PRIVATE, Modifier.FINAL)),
+        Collections.emptySet(),
+        Util.immutableSet(Arrays.asList(Modifier.FINAL, Modifier.STATIC)),
+        Collections.singleton(Modifier.STATIC));
 
     private final Set<Modifier> implicitFieldModifiers;
     private final Set<Modifier> implicitMethodModifiers;
@@ -459,6 +519,7 @@ public final class TypeSpec {
     private final Kind kind;
     private final String name;
     private final CodeBlock anonymousTypeArguments;
+    private boolean recordVarargs = false;
 
     private final CodeBlock.Builder javadoc = CodeBlock.builder();
     private TypeName superclass = ClassName.OBJECT;
@@ -466,6 +527,7 @@ public final class TypeSpec {
     private final CodeBlock.Builder initializerBlock = CodeBlock.builder();
 
     public final Map<String, TypeSpec> enumConstants = new LinkedHashMap<>();
+    public final List<ParameterSpec> recordComponents = new ArrayList<>();
     public final List<AnnotationSpec> annotations = new ArrayList<>();
     public final List<Modifier> modifiers = new ArrayList<>();
     public final List<TypeVariableName> typeVariables = new ArrayList<>();
@@ -634,6 +696,36 @@ public final class TypeSpec {
       enumConstants.put(name, typeSpec);
       return this;
     }
+
+    public Builder addRecordComponent(Iterable<ParameterSpec> parameterSpecs) {
+        checkArgument(parameterSpecs != null, "parameterSpecs == null");
+        for (ParameterSpec parameterSpec : parameterSpecs) {
+          this.recordComponents.add(parameterSpec);
+        }
+        return this;
+      }
+
+      public Builder addRecordComponent(ParameterSpec parameterSpec) {
+        this.recordComponents.add(parameterSpec);
+        return this;
+      }
+
+      public Builder addRecordComponent(TypeName type, String name, Modifier... modifiers) {
+        return addRecordComponent(ParameterSpec.builder(type, name, modifiers).build());
+      }
+
+      public Builder addRecordComponent(Type type, String name, Modifier... modifiers) {
+        return addRecordComponent(TypeName.get(type), name, modifiers);
+      }
+
+      public Builder recordVarargs() {
+        return recordVarargs(true);
+      }
+
+      public Builder recordVarargs(boolean varargs) {
+        this.recordVarargs = varargs;
+        return this;
+      }
 
     public Builder addFields(Iterable<FieldSpec> fieldSpecs) {
       checkArgument(fieldSpecs != null, "fieldSpecs == null");
