@@ -9,13 +9,13 @@
     <version>7</version>
   </parent>
 
-  <groupId>com.squareup</groupId>
-  <artifactId>javapoet</artifactId>
-  <version>1.14.0-SNAPSHOT</version>
+  <groupId>io.github.nhwalker.forks</groupId>
+  <artifactId>com.squareup.javapoet</artifactId>
+  <version>1.15.0-SNAPSHOT</version>
 
   <name>JavaPoet</name>
-  <description>Use beautiful Java code to generate beautiful Java code.</description>
-  <url>http://github.com/square/javapoet/</url>
+  <description>Fork of http://github.com/square/javapoet/ to add record support</description>
+  <url>https://github.com/nhwalker/javapoet</url>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -27,15 +27,13 @@
   </properties>
 
   <scm>
-    <url>http://github.com/square/javapoet/</url>
-    <connection>scm:git:git://github.com/square/javapoet.git</connection>
-    <developerConnection>scm:git:ssh://git@github.com/square/javapoet.git</developerConnection>
+    <url>https://github.com/nhwalker/javapoet</url>
     <tag>HEAD</tag>
   </scm>
 
   <issueManagement>
     <system>GitHub Issues</system>
-    <url>http://github.com/square/javapoet/issues</url>
+    <url>https://github.com/nhwalker/javapoet/issues</url>
   </issueManagement>
 
   <licenses>
@@ -45,10 +43,6 @@
     </license>
   </licenses>
 
-  <organization>
-    <name>Square, Inc.</name>
-    <url>http://squareup.com</url>
-  </organization>
 
   <dependencies>
     <dependency>
